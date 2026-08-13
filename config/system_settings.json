@@ -1,0 +1,7 @@
+{
+  "threshold_high": 75,
+  "threshold_medium": 45,
+  "maintenance_mode": false,
+  "alert_system_active": true,
+  "data_sync_interval": 30
+}
