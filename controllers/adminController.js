@@ -391,13 +391,19 @@ const clearAllPrediksi = async (req, res) => {
   }
 };
 
+const isValidUUID = (str) => {
+  return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+};
+
 // --- Kelola Notifikasi ---
 const getSemuaNotifikasi = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT n.id, n.judul, n.pesan, n.status_baca, n.created_at, u.nama as user_nama, u.email as user_email
+      SELECT n.id, n.judul, n.pesan, n.status_baca, n.created_at,
+             COALESCE(u.nama, 'Pengguna') as user_nama,
+             COALESCE(u.email, '-') as user_email
       FROM notifikasi n
-      JOIN "User" u ON n.user_id = u.id
+      LEFT JOIN "User" u ON n.user_id = u.id
       ORDER BY n.created_at DESC
       LIMIT 100
     `);
@@ -410,35 +416,47 @@ const getSemuaNotifikasi = async (req, res) => {
 
 const buatNotifikasi = async (req, res) => {
   try {
-    const { user_id, judul, pesan } = req.body;
+    const { user_id, judul, pesan, hasil_prediksi_id } = req.body;
     if (!judul || !pesan) {
       return res.status(400).json({ success: false, message: 'Judul dan pesan tidak boleh kosong.' });
     }
 
-    const newNotifId = crypto.randomUUID();
-    const now = new Date();
+    let validHpId = null;
+    if (hasil_prediksi_id && isValidUUID(hasil_prediksi_id)) {
+      const hpCheck = await pool.query('SELECT id FROM hasil_prediksi WHERE id = $1', [hasil_prediksi_id]);
+      if (hpCheck.rows.length > 0) validHpId = hpCheck.rows[0].id;
+    }
 
-    if (user_id && user_id !== 'all') {
-      await pool.query(
-        `INSERT INTO notifikasi (id, user_id, judul, pesan, status_baca, created_at)
-         VALUES ($1, $2, $3, $4, false, NOW())`,
-        [newNotifId, user_id, judul, pesan]
-      );
+    const now = new Date();
+    const isSingleUser = isValidUUID(user_id);
+
+    if (isSingleUser) {
+      const userCheck = await pool.query('SELECT id FROM "User" WHERE id = $1', [user_id]);
+      if (userCheck.rows.length > 0) {
+        const newNotifId = crypto.randomUUID();
+        await pool.query(
+          `INSERT INTO notifikasi (id, user_id, hasil_prediksi_id, judul, pesan, status_baca, created_at)
+           VALUES ($1, $2, $3, $4, $5, false, NOW())`,
+          [newNotifId, user_id, validHpId, judul, pesan]
+        );
+      } else {
+        return res.status(404).json({ success: false, message: 'Pengguna penerima tidak ditemukan.' });
+      }
     } else {
       const usersRes = await pool.query('SELECT id FROM "User"');
       for (let userRow of usersRes.rows) {
         await pool.query(
-          `INSERT INTO notifikasi (id, user_id, judul, pesan, status_baca, created_at)
-           VALUES ($1, $2, $3, $4, false, NOW())`,
-          [crypto.randomUUID(), userRow.id, judul, pesan]
+          `INSERT INTO notifikasi (id, user_id, hasil_prediksi_id, judul, pesan, status_baca, created_at)
+           VALUES ($1, $2, $3, $4, $5, false, NOW())`,
+          [crypto.randomUUID(), userRow.id, validHpId, judul, pesan]
         );
       }
     }
 
     // Broadcast ke SSE listeners secara real-time
     broadcastNotifEvent({
-      id: newNotifId,
-      user_id: user_id || 'all',
+      id: crypto.randomUUID(),
+      user_id: isSingleUser ? user_id : 'all',
       judul,
       pesan,
       status_baca: false,
@@ -448,7 +466,7 @@ const buatNotifikasi = async (req, res) => {
     res.status(201).json({ success: true, message: 'Notifikasi berhasil dikirim.' });
   } catch (error) {
     console.error('Error di buatNotifikasi:', error.message);
-    res.status(500).json({ success: false, message: 'Gagal membuat notifikasi.' });
+    res.status(500).json({ success: false, message: 'Gagal membuat notifikasi: ' + error.message });
   }
 };
 
@@ -774,7 +792,22 @@ const importCSVDataBMKG = async (req, res) => {
       }
     }
 
-    // Bersihkan data cuaca impor sebelumnya agar tidak menumpuk duplikat
+    // Bersihkan data cuaca impor sebelumnya agar tidak menumpuk duplikat hanya jika ada data baru yang valid
+    if (uniqueSuccessRows.length === 0) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({
+        success: false,
+        message: `Gagal mengimpor: Tidak ada data valid yang dapat diproses. (${errorRows.length} baris bermasalah)`,
+        summary: {
+          totalCSV: lines.length - 1,
+          successCount: 0,
+          errorCount: errorRows.length,
+          errors: errorRows
+        }
+      });
+    }
+
     await client.query('DELETE FROM notifikasi WHERE hasil_prediksi_id IS NOT NULL');
     await client.query('DELETE FROM laporan WHERE hasil_prediksi_id IS NOT NULL');
     await client.query('DELETE FROM hasil_prediksi');
@@ -869,12 +902,12 @@ const importCSVDataBMKG = async (req, res) => {
 
     const sampleResults = hasilPrediksiBatch.slice(0, 50).map((pred, idx) => ({
       hasil_prediksi_id: pred.id,
-      nama_pos: successRows[idx]?.namaPos || 'Stasiun BMKG',
-      suhu: dataCuacaBatch[idx].suhu,
-      curah_hujan: dataCuacaBatch[idx].curah_hujan,
-      tekanan_udara: dataCuacaBatch[idx].tekanan_udara,
-      kelembapan: dataCuacaBatch[idx].kelembapan,
-      kecepatan_angin: dataCuacaBatch[idx].kecepatan_angin,
+      nama_pos: uniqueSuccessRows[idx]?.namaPos || 'Stasiun BMKG',
+      suhu: dataCuacaBatch[idx]?.suhu,
+      curah_hujan: dataCuacaBatch[idx]?.curah_hujan,
+      tekanan_udara: dataCuacaBatch[idx]?.tekanan_udara,
+      kelembapan: dataCuacaBatch[idx]?.kelembapan,
+      kecepatan_angin: dataCuacaBatch[idx]?.kecepatan_angin,
       tingkat_risiko: pred.tingkat_risiko,
       probabilitas: pred.probabilitas
     }));

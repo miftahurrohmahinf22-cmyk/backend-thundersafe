@@ -60,7 +60,8 @@ const createLaporan = async (req, res) => {
     }
 
     const id = crypto.randomUUID();
-    const file_url = `http://localhost:5000/reports/${nama_file}`; // Dummy URL lokal
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const file_url = `${baseUrl}/reports/${nama_file}`;
 
     await pool.query(
       `INSERT INTO laporan (id, user_id, hasil_prediksi_id, nama_file, file_url, created_at)
