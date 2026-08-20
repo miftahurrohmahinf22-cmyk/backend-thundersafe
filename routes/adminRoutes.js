@@ -11,16 +11,19 @@ const {
   getSemuaNotifikasi, buatNotifikasi, hapusNotifikasi,
   getSystemSettings, updateSystemSettings,
   getSemuaLaporan, hapusLaporan,
-  importCSVDataBMKG
+  importCSVDataBMKG,
+  getMLPipelineInfo
 } = require('../controllers/adminController');
 
 // Proteksi seluruh rute admin
 router.use(protect);
 router.use(authorizeRole('admin'));
 
-// --- Statistik ---
+// --- Statistik & ML Pipeline ---
 router.get('/statistik', getStatistik);
+router.get('/ml-info', getMLPipelineInfo);
 router.post('/import-csv', importCSVDataBMKG);
+
 
 // --- Kelola User ---
 router.get('/users', getSemuaUser);

@@ -14,11 +14,6 @@ const pool = new Pool({
 });
 
 const connectDB = async () => {
-  if (!process.env.DATABASE_URL) {
-    console.log('DATABASE_URL belum diatur, lewati koneksi database.');
-    return;
-  }
-
   try {
     await pool.query('SELECT NOW()');
     console.log('Koneksi database berhasil.');

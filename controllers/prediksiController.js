@@ -10,18 +10,18 @@ const predictRisk = async (req, res) => {
     const userId = req.user.id;
     let { suhu, kelembapan, kecepatan_angin, curah_hujan, tekanan_udara, lokasi_id } = req.body;
 
-    // Parse 4 Fitur Meteorologi Utama untuk Naive Bayes
+    // Parse 5 Fitur Meteorologi Utama untuk Gaussian Naive Bayes
     const suhuNum = parseFloat(suhu);
     const kelemNum = parseFloat(kelembapan);
     const anginNum = parseFloat(kecepatan_angin);
     const hujanNum = parseFloat(curah_hujan);
-    const tekananNum = !isNaN(parseFloat(tekanan_udara)) ? parseFloat(tekanan_udara) : 1013.25;
+    const tekananNum = parseFloat(tekanan_udara !== undefined ? tekanan_udara : 1013.25);
 
-    // Validasi input 4 fitur utama
-    if (isNaN(suhuNum) || isNaN(kelemNum) || isNaN(anginNum) || isNaN(hujanNum)) {
+    // Validasi input 5 fitur utama
+    if (isNaN(suhuNum) || isNaN(kelemNum) || isNaN(anginNum) || isNaN(hujanNum) || isNaN(tekananNum)) {
       return res.status(400).json({
         success: false,
-        message: 'Parameter meteorologi (suhu, kelembapan, kecepatan angin, curah hujan) harus berupa angka valid.'
+        message: 'Parameter meteorologi (suhu, kelembapan, tekanan udara, curah hujan, kecepatan angin) harus berupa angka valid.'
       });
     }
 
@@ -42,13 +42,15 @@ const predictRisk = async (req, res) => {
     const lokasiRes = await pool.query('SELECT nama_pos FROM lokasi WHERE id = $1', [lokasi_id]);
     const namaPos = lokasiRes.rows.length > 0 ? lokasiRes.rows[0].nama_pos : 'Stasiun Cuaca';
 
-    // 2. Jalankan Klasifikasi Gaussian Naive Bayes (4 Fitur)
+    // 2. Jalankan Klasifikasi Gaussian Naive Bayes (5 Fitur Utama Penelitian)
     const predResult = await predictNaiveBayes(pool, {
       suhu: suhuNum,
       kelembapan: kelemNum,
-      kecepatan_angin: anginNum,
-      curah_hujan: hujanNum
-    }, null, namaPos);
+      tekanan_udara: tekananNum,
+      curah_hujan: hujanNum,
+      kecepatan_angin: anginNum
+    });
+
 
     const dataCuacaId = crypto.randomUUID();
     const hasilPrediksiId = crypto.randomUUID();

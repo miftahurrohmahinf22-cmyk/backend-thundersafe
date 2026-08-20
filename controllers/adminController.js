@@ -942,6 +942,80 @@ const importCSVDataBMKG = async (req, res) => {
   }
 };
 
+/**
+ * Controller Rute GET /api/admin/ml-info
+ * Mengembalikan seluruh informasi metodologi ML, parameter GNB 5-fitur, centroid K-Means,
+ * serta hasil evaluasi data testing (Confusion Matrix, Akurasi, Presisi, Recall, F1-Score)
+ */
+const getMLPipelineInfo = async (req, res) => {
+  try {
+    const rawObservations = require('../config/bmkgObservations');
+    const {
+      preprocessBMKGData,
+      runKMeansLabeling,
+      stratifiedSplit,
+      trainNaiveBayesModel,
+      evaluateNaiveBayesModel
+    } = require('../services/naiveBayes');
+
+    const validDataset = [];
+    let invalidCount = 0;
+
+    for (let raw of rawObservations) {
+      const prep = preprocessBMKGData(raw);
+      if (prep.isValid) validDataset.push(prep.data);
+      else invalidCount++;
+    }
+
+    const { labeledDataset, unnormCentroids, clusterScores, clusterToLabelMap, classCounts } = runKMeansLabeling(validDataset, 3);
+    const { trainData, testData } = stratifiedSplit(labeledDataset, 0.8);
+    const modelStats = trainNaiveBayesModel(trainData);
+    const evaluation = evaluateNaiveBayesModel(modelStats, testData);
+
+    // Get current DB training dataset count
+    const dbTrainRes = await pool.query("SELECT COUNT(*) FROM dataset_training");
+    const dbMainRes = await pool.query("SELECT COUNT(*) FROM data_cuaca");
+
+    res.status(200).json({
+      success: true,
+      pipeline: {
+        totalInitialObservations: rawObservations.length,
+        invalidDataCount: invalidCount,
+        mainDatasetCount: validDataset.length,
+        trainingDataCount: trainData.length,
+        testingDataCount: testData.length,
+        clusterCount: 3,
+        featureCount: 5,
+        features: ['suhu', 'kelembapan', 'tekanan_udara', 'curah_hujan', 'kecepatan_angin'],
+        classCounts,
+        centroids: unnormCentroids.map((c, i) => ({
+          clusterIndex: i,
+          assignedLabel: clusterToLabelMap[i],
+          values: c
+        })),
+        gnbParameters: modelStats,
+        evaluation: {
+          confusionMatrix: evaluation.matrix,
+          accuracy: Number((evaluation.accuracy * 100).toFixed(2)),
+          macroPrecision: Number((evaluation.macroPrecision * 100).toFixed(2)),
+          macroRecall: Number((evaluation.macroRecall * 100).toFixed(2)),
+          macroF1Score: Number((evaluation.macroF1 * 100).toFixed(2)),
+          perClass: evaluation.perClass,
+          totalTest: evaluation.totalTest,
+          correctCount: evaluation.correctCount
+        },
+        dbStatus: {
+          trainingTableRows: parseInt(dbTrainRes.rows[0].count, 10),
+          dataCuacaTableRows: parseInt(dbMainRes.rows[0].count, 10)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error di getMLPipelineInfo:', error.message);
+    res.status(500).json({ success: false, message: 'Gagal mengambil informasi ML pipeline: ' + error.message });
+  }
+};
+
 module.exports = {
   getStatistik,
   getSemuaUser, deleteUser,
@@ -952,6 +1026,8 @@ module.exports = {
   getSemuaNotifikasi, buatNotifikasi, hapusNotifikasi,
   getSystemSettings, updateSystemSettings,
   getSemuaLaporan, hapusLaporan,
-  importCSVDataBMKG
+  importCSVDataBMKG,
+  getMLPipelineInfo
 };
+
 
