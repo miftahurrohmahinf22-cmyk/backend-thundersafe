@@ -55,27 +55,11 @@ const adminRoutes = require("./routes/adminRoutes");
 
 // Endpoint Publik Utama
 app.get("/", (_req, res) => {
-  res.json({
-    status: "ok",
-    message: "ThunderSafe Local Backend Siap",
-    endpoints: [
-      "/api/health",
-      "/api/cuaca/terbaru",
-      "/api/edukasi",
-      "/api/auth/register",
-      "/api/auth/login",
-      "/api/users/profile",
-      "/api/prediction",
-      "/api/history",
-      "/api/lokasi",
-      "/api/notifications",
-      "/api/laporan"
-    ],
-  });
+  res.status(200).send("OK - ThunderSafe Backend Active");
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", message: "ThunderSafe backend aktif" });
+  res.status(200).send("OK - ThunderSafe Backend Active");
 });
 
 // Daftarkan Rute API
