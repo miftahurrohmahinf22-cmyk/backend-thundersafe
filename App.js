@@ -89,7 +89,7 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server ThunderSafe Backend aktif di http://0.0.0.0:${PORT}`);
+  console.log(`Server ThunderSafe Backend aktif di http://localhost:${PORT}`);
 });
 
 module.exports = app;
